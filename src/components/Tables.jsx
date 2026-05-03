@@ -69,14 +69,25 @@ const products = [
   { id: 31, name: "Pizza margarita big", category: "Pizza", price: 75000 },
   { id: 32, name: "Pizza pepperoni mini", category: "Pizza", price: 40000 },
   { id: 33, name: "Pizza pepperoni big", category: "Pizza", price: 80000 },
+  { id: 34, name: "Pizza tovuqli mini", category: "Pizza", price: 40000 },
+  { id: 35, name: "Pizza tovuqli big", category: "Pizza", price: 80000 },
+  { id: 36, name: "Pizza korolevskiy mini", category: "Pizza", price: 42000 },
+  { id: 37, name: "Pizza korolevskiy big", category: "Pizza", price: 85000 },
 
   { id: 38, name: "Pepsi 0.5L", category: "Ichimlik", price: 8000 },
   { id: 39, name: "Pepsi 1L", category: "Ichimlik", price: 12000 },
   { id: 40, name: "Pepsi 1.5L", category: "Ichimlik", price: 16000 },
   { id: 41, name: "Adrenalin", category: "Ichimlik", price: 17000 },
   { id: 42, name: "Sok 1L", category: "Ichimlik", price: 15000 },
+  { id: 43, name: "Choy muzy 0.5L", category: "Ichimlik", price: 5000 },
+  { id: 44, name: "Choy muzy 1L", category: "Ichimlik", price: 10000 },
   { id: 45, name: "Mineral suv 0.5L", category: "Ichimlik", price: 3000 },
   { id: 46, name: "Mineral suv 1L", category: "Ichimlik", price: 5000 },
+  { id: 47, name: "Choy (bakal)", category: "Ichimlik", price: 2000 },
+  { id: 48, name: "Choy limon (bakal)", category: "Ichimlik", price: 5000 },
+  { id: 49, name: "Choy (choynak)", category: "Ichimlik", price: 5000 },
+  { id: 50, name: "Choy limon (choynak)", category: "Ichimlik", price: 15000 },
+  { id: 51, name: "Kofe", category: "Ichimlik", price: 5000 },
 
   { id: 52, name: "KFC kombo", category: "Kombo", price: 20000 },
   { id: 53, name: "Pizza + KFC kombo", category: "Kombo", price: 20000 },
@@ -90,11 +101,21 @@ const products = [
 ]
 
 function isCash(order) {
-  return order.payment_type === "cash" || order.payment_type === "Naqd"
+  return (
+    order.payment_type === "cash" ||
+    order.payment_type === "Naqd" ||
+    order.payment === "cash" ||
+    order.payment === "Naqd"
+  )
 }
 
 function isCard(order) {
-  return order.payment_type === "card" || order.payment_type === "Karta"
+  return (
+    order.payment_type === "card" ||
+    order.payment_type === "Karta" ||
+    order.payment === "card" ||
+    order.payment === "Karta"
+  )
 }
 
 function Tables() {
@@ -118,7 +139,9 @@ function Tables() {
       .eq("key", "business_day_start")
       .maybeSingle()
 
-    if (!error && data?.value?.date) return data.value.date
+    if (!error && data?.value?.date) {
+      return data.value.date
+    }
 
     const now = new Date().toISOString()
 
@@ -136,9 +159,10 @@ function Tables() {
 
   const makeReportTitle = (date) => {
     const d = new Date(date)
-    return `${String(d.getDate()).padStart(2, "0")}.${String(
-      d.getMonth() + 1
-    ).padStart(2, "0")}.${d.getFullYear()} hisoboti`
+    const day = String(d.getDate()).padStart(2, "0")
+    const month = String(d.getMonth() + 1).padStart(2, "0")
+    const year = d.getFullYear()
+    return `${day}.${month}.${year} hisoboti`
   }
 
   const getOrders = async () => {
@@ -148,6 +172,7 @@ function Tables() {
       .order("created_at", { ascending: false })
 
     if (error) {
+      console.log("Supabase order olish xato:", error)
       setBackendStatus("Supabase xatolik ❌")
       return
     }
@@ -164,18 +189,30 @@ function Tables() {
       .select("*")
       .gte("created_at", start)
 
-    if (error) return
+    if (error) {
+      console.log("Report xato:", error)
+      return
+    }
 
     const list = data || []
 
+    const totalSales = list.reduce(
+      (sum, order) => sum + Number(order.total || 0),
+      0
+    )
+
+    const cashSales = list
+      .filter((order) => isCash(order))
+      .reduce((sum, order) => sum + Number(order.total || 0), 0)
+
+    const cardSales = list
+      .filter((order) => isCard(order))
+      .reduce((sum, order) => sum + Number(order.total || 0), 0)
+
     setReport({
-      totalSales: list.reduce((sum, o) => sum + Number(o.total || 0), 0),
-      cashSales: list
-        .filter(isCash)
-        .reduce((sum, o) => sum + Number(o.total || 0), 0),
-      cardSales: list
-        .filter(isCard)
-        .reduce((sum, o) => sum + Number(o.total || 0), 0),
+      totalSales,
+      cashSales,
+      cardSales,
       orderCount: list.length,
     })
   }
@@ -195,7 +232,7 @@ function Tables() {
   const filteredProducts =
     activeCategory === "Hammasi"
       ? products
-      : products.filter((p) => p.category === activeCategory)
+      : products.filter((product) => product.category === activeCategory)
 
   const addToCart = (product) => {
     const exist = cart.find((item) => item.id === product.id)
@@ -211,21 +248,19 @@ function Tables() {
     }
   }
 
+  const decreaseQty = (id) => {
+    const newCart = cart
+      .map((item) => (item.id === id ? { ...item, qty: item.qty - 1 } : item))
+      .filter((item) => item.qty > 0)
+
+    setCart(newCart)
+  }
+
   const increaseQty = (id) => {
     setCart(
       cart.map((item) =>
         item.id === id ? { ...item, qty: item.qty + 1 } : item
       )
-    )
-  }
-
-  const decreaseQty = (id) => {
-    setCart(
-      cart
-        .map((item) =>
-          item.id === id ? { ...item, qty: item.qty - 1 } : item
-        )
-        .filter((item) => item.qty > 0)
     )
   }
 
@@ -240,38 +275,6 @@ function Tables() {
   }
 
   const total = cart.reduce((sum, item) => sum + item.price * item.qty, 0)
-
-  const payOrder = async () => {
-    if (cart.length === 0) {
-      alert("Avval mahsulot tanlang")
-      return
-    }
-
-    const orderData = {
-      table_number: "Menu",
-      items: cart.map((item) => ({
-        name: item.name,
-        price: item.price,
-        quantity: item.qty,
-      })),
-      total,
-      payment_type: paymentType,
-    }
-
-    const { error } = await supabase.from("orders").insert([orderData])
-
-    if (error) {
-      alert("Order saqlanmadi ❌ Supabase RLS yoki table xato")
-      return
-    }
-
-    setCart([])
-    setPaymentType("cash")
-    await getOrders()
-    await getReport()
-
-    alert("Order saqlandi ✅")
-  }
 
   const closeDay = async () => {
     if (cart.length > 0) {
@@ -293,19 +296,25 @@ function Tables() {
       .gte("created_at", openedAt)
 
     if (error) {
+      console.log("Kun yopish order olish xato:", error)
       alert("Orderlarni olishda xatolik ❌")
       return
     }
 
     const list = data || []
 
-    const totalSales = list.reduce((sum, o) => sum + Number(o.total || 0), 0)
+    const totalSales = list.reduce(
+      (sum, order) => sum + Number(order.total || 0),
+      0
+    )
+
     const cashSales = list
-      .filter(isCash)
-      .reduce((sum, o) => sum + Number(o.total || 0), 0)
+      .filter((order) => isCash(order))
+      .reduce((sum, order) => sum + Number(order.total || 0), 0)
+
     const cardSales = list
-      .filter(isCard)
-      .reduce((sum, o) => sum + Number(o.total || 0), 0)
+      .filter((order) => isCard(order))
+      .reduce((sum, order) => sum + Number(order.total || 0), 0)
 
     const closedAt = new Date().toISOString()
 
@@ -323,7 +332,8 @@ function Tables() {
     ])
 
     if (saveError) {
-      alert("Hisobot saqlanmadi ❌")
+      console.log("Hisobot saqlash xato:", saveError)
+      alert("Hisobot saqlanmadi ❌ day_reports table yoki RLS policy tekshir")
       return
     }
 
@@ -337,6 +347,7 @@ function Tables() {
     )
 
     if (settingError) {
+      console.log("Setting yangilash xato:", settingError)
       alert("Kun yopildi, lekin yangi kun starti saqlanmadi ❌")
       return
     }
@@ -347,11 +358,46 @@ function Tables() {
     alert("Kun yopildi ✅ Yangi savdo 0 dan boshlandi")
   }
 
+  const payOrder = async () => {
+    if (cart.length === 0) {
+      alert("Avval mahsulot tanlang")
+      return
+    }
+
+    const orderData = {
+      table_number: "Menu",
+      items: cart.map((item) => ({
+        name: item.name,
+        price: item.price,
+        quantity: item.qty,
+      })),
+      total,
+      payment_type: paymentType,
+    }
+
+    const { error } = await supabase.from("orders").insert([orderData])
+
+    if (error) {
+      console.log("Order saqlash xato:", error)
+      alert("Order saqlanmadi ❌ Supabase RLS yoki table xato")
+      return
+    }
+
+    setCart([])
+    setPaymentType("cash")
+
+    await getOrders()
+    await getReport()
+
+    alert("Order Supabase ga saqlandi ✅")
+  }
+
   return (
     <div className="min-h-screen bg-gray-950 text-white px-3 py-3 sm:px-4 md:px-5 lg:px-6">
       <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4 mb-5">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold">FastFood POS</h1>
+
           <p className="text-gray-400 text-sm md:text-base">
             Menu tanlang va buyurtma oling
           </p>
@@ -376,14 +422,33 @@ function Tables() {
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 w-full xl:w-auto">
-          <Stat title="Joriy hisob" value={`${report.totalSales.toLocaleString()} so‘m`} color="text-green-400" />
-          <Stat title="Naqd" value={`${report.cashSales.toLocaleString()} so‘m`} color="text-yellow-400" />
-          <Stat title="Karta" value={`${report.cardSales.toLocaleString()} so‘m`} color="text-blue-400" />
-          <Stat title="Buyurtmalar" value={`${report.orderCount} ta`} color="text-white" />
+          <StatCard
+            title="Joriy hisob"
+            value={`${report.totalSales.toLocaleString()} so‘m`}
+            color="text-green-400"
+          />
+
+          <StatCard
+            title="Naqd"
+            value={`${report.cashSales.toLocaleString()} so‘m`}
+            color="text-yellow-400"
+          />
+
+          <StatCard
+            title="Karta"
+            value={`${report.cardSales.toLocaleString()} so‘m`}
+            color="text-blue-400"
+          />
+
+          <StatCard
+            title="Buyurtmalar"
+            value={`${report.orderCount} ta`}
+            color="text-white"
+          />
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] xl:grid-cols-[1fr_420px] gap-4 lg:gap-5">
         <main>
           <div className="flex gap-2 mb-4 overflow-x-auto pb-2">
             {categories.map((cat) => (
@@ -450,7 +515,7 @@ function Tables() {
                     </div>
 
                     <p className="font-bold text-green-400 text-sm md:text-base">
-                      {Number(order.total).toLocaleString()} so‘m
+                      {Number(order.total || 0).toLocaleString()} so‘m
                     </p>
                   </div>
                 ))}
@@ -460,13 +525,15 @@ function Tables() {
         </main>
 
         <aside className="bg-gray-900 rounded-2xl p-4 border border-gray-800 h-fit lg:sticky lg:top-24">
-          <h2 className="text-xl md:text-2xl font-bold mb-4">Hozirgi zakaz</h2>
+          <h2 className="text-xl md:text-2xl font-bold mb-4">
+            Hozirgi zakaz
+          </h2>
 
           {cart.length === 0 ? (
             <p className="text-gray-400">Hali mahsulot tanlanmadi</p>
           ) : (
             <div className="space-y-3">
-              <div className="max-h-[50vh] overflow-y-auto pr-1 space-y-3">
+              <div className="max-h-[50vh] lg:max-h-[58vh] overflow-y-auto pr-1 space-y-3">
                 {cart.map((item) => (
                   <div key={item.id} className="bg-gray-800 rounded-xl p-3">
                     <div className="flex justify-between gap-3">
@@ -474,6 +541,7 @@ function Tables() {
                         <h3 className="font-semibold text-sm md:text-base">
                           {item.name}
                         </h3>
+
                         <p className="text-xs text-gray-400">
                           {item.price.toLocaleString()} so‘m
                         </p>
@@ -517,6 +585,7 @@ function Tables() {
               <div className="border-t border-gray-700 pt-4 mt-4 space-y-4">
                 <div>
                   <p className="text-gray-400 mb-2">To‘lov turi</p>
+
                   <div className="grid grid-cols-2 gap-3">
                     <button
                       onClick={() => setPaymentType("cash")}
@@ -562,7 +631,7 @@ function Tables() {
   )
 }
 
-function Stat({ title, value, color }) {
+function StatCard({ title, value, color }) {
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-2xl p-3 md:p-4">
       <p className="text-gray-400 text-xs md:text-sm">{title}</p>
