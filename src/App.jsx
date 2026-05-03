@@ -1,41 +1,39 @@
-import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
-import Tables from "./components/Tables";
-import AdminDashboard from "./pages/AdminDashboard";
+import { useState } from "react"
+import Tables from "./components/Tables"
+import AdminDashboard from "./pages/AdminDashboard"
 
 function App() {
+  const [page, setPage] = useState("pos")
+
   return (
-    <Router>
-      <div className="min-h-screen bg-slate-950 text-white">
+    <div className="min-h-screen bg-gray-950 text-white">
+      <header className="sticky top-0 z-50 bg-gray-900 border-b border-gray-800 px-4 py-4 flex justify-between items-center">
+        <h1 className="text-xl font-bold">POS System</h1>
 
-        {/* TOP NAV */}
-        <div className="flex justify-between items-center p-4 bg-slate-900 border-b border-slate-800">
-          <h1 className="font-bold text-xl">POS System</h1>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setPage("pos")}
+            className={`px-5 py-3 rounded-xl font-bold ${
+              page === "pos" ? "bg-blue-600" : "bg-gray-800"
+            }`}
+          >
+            POS
+          </button>
 
-          <div className="flex gap-3">
-            <Link
-              to="/"
-              className="bg-blue-500 px-4 py-2 rounded-lg font-semibold"
-            >
-              POS
-            </Link>
-
-            <Link
-              to="/admin"
-              className="bg-orange-500 px-4 py-2 rounded-lg font-semibold"
-            >
-              Admin
-            </Link>
-          </div>
+          <button
+            onClick={() => setPage("admin")}
+            className={`px-5 py-3 rounded-xl font-bold ${
+              page === "admin" ? "bg-orange-500" : "bg-gray-800"
+            }`}
+          >
+            Admin
+          </button>
         </div>
+      </header>
 
-        {/* ROUTES */}
-        <Routes>
-          <Route path="/" element={<Tables />} />
-          <Route path="/admin" element={<AdminDashboard />} />
-        </Routes>
-      </div>
-    </Router>
-  );
+      {page === "pos" ? <Tables /> : <AdminDashboard />}
+    </div>
+  )
 }
 
-export default App;
+export default App

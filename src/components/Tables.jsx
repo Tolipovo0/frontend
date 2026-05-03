@@ -5,7 +5,6 @@ const supabase = createClient(
   "https://mfnwenibbmdllvqvkiof.supabase.co",
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1mbndlbmliYm1kbGx2cXZraW9mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc3NDcyNDYsImV4cCI6MjA5MzMyMzI0Nn0.0CljUd3FaSGBHnWNh1E977zhE6LM54Ex3RPLExKK6Es"
 )
-
 const initialTables = Array.from({ length: 19 }, (_, i) => ({
   id: i + 1,
   status: "empty",
@@ -97,6 +96,24 @@ const products = [
   { id: 59, name: "Sezar salati", category: "Salat", price: 25000 },
 ]
 
+function isCash(order) {
+  return (
+    order.payment_type === "cash" ||
+    order.payment_type === "Naqd" ||
+    order.payment === "cash" ||
+    order.payment === "Naqd"
+  )
+}
+
+function isCard(order) {
+  return (
+    order.payment_type === "card" ||
+    order.payment_type === "Karta" ||
+    order.payment === "card" ||
+    order.payment === "Karta"
+  )
+}
+
 function Tables() {
   const [tables, setTables] = useState(initialTables)
   const [orders, setOrders] = useState([])
@@ -116,10 +133,38 @@ function Tables() {
 
   const cart = selectedTable ? tableCarts[selectedTable] || [] : []
 
-  const getTodayStart = () => {
-    const date = new Date()
-    date.setHours(0, 0, 0, 0)
-    return date.toISOString()
+  const getBusinessDayStart = async () => {
+    const { data, error } = await supabase
+      .from("app_settings")
+      .select("*")
+      .eq("key", "business_day_start")
+      .maybeSingle()
+
+    if (!error && data?.value?.date) {
+      return data.value.date
+    }
+
+    const todayStart = new Date()
+    todayStart.setHours(0, 0, 0, 0)
+
+    const start = todayStart.toISOString()
+    const now = new Date().toISOString()
+
+    await supabase.from("app_settings").upsert({
+      key: "business_day_start",
+      value: { date: start },
+      updated_at: now,
+    })
+
+    return start
+  }
+
+  const makeReportTitle = (date) => {
+    const d = new Date(date)
+    const day = String(d.getDate()).padStart(2, "0")
+    const month = String(d.getMonth() + 1).padStart(2, "0")
+    const year = d.getFullYear()
+    return `${day}.${month}.${year} hisoboti`
   }
 
   const getOrders = async () => {
@@ -139,36 +184,38 @@ function Tables() {
   }
 
   const getReport = async () => {
+    const start = await getBusinessDayStart()
+
     const { data, error } = await supabase
       .from("orders")
       .select("*")
-      .gte("created_at", getTodayStart())
+      .gte("created_at", start)
 
     if (error) {
       console.log("Report xato:", error)
       return
     }
 
-    const todayOrders = data || []
+    const currentOrders = data || []
 
-    const totalSales = todayOrders.reduce(
+    const totalSales = currentOrders.reduce(
       (sum, order) => sum + Number(order.total || 0),
       0
     )
 
-    const cashSales = todayOrders
-      .filter((order) => order.payment_type === "cash")
+    const cashSales = currentOrders
+      .filter((order) => isCash(order))
       .reduce((sum, order) => sum + Number(order.total || 0), 0)
 
-    const cardSales = todayOrders
-      .filter((order) => order.payment_type === "card")
+    const cardSales = currentOrders
+      .filter((order) => isCard(order))
       .reduce((sum, order) => sum + Number(order.total || 0), 0)
 
     setReport({
       totalSales,
       cashSales,
       cardSales,
-      orderCount: todayOrders.length,
+      orderCount: currentOrders.length,
     })
   }
 
@@ -261,6 +308,94 @@ function Tables() {
   }
 
   const total = cart.reduce((sum, item) => sum + item.price * item.qty, 0)
+
+  const closeDay = async () => {
+    const hasBusyTable = Object.values(tableCarts).some(
+      (items) => items.length > 0
+    )
+
+    if (hasBusyTable) {
+      alert("Avval band stollarning to‘lovini qiling yoki zakazni tozalang ❌")
+      return
+    }
+
+    const ok = confirm(
+      "Kunni yopasizmi? Hisobot history ga saqlanadi va joriy hisob 0 ga tushadi."
+    )
+
+    if (!ok) return
+
+    const openedAt = await getBusinessDayStart()
+
+    const { data, error } = await supabase
+      .from("orders")
+      .select("*")
+      .gte("created_at", openedAt)
+
+    if (error) {
+      console.log("Kun yopish order olish xato:", error)
+      alert("Orderlarni olishda xatolik ❌")
+      return
+    }
+
+    const list = data || []
+
+    const totalSales = list.reduce(
+      (sum, order) => sum + Number(order.total || 0),
+      0
+    )
+
+    const cashSales = list
+      .filter((order) => isCash(order))
+      .reduce((sum, order) => sum + Number(order.total || 0), 0)
+
+    const cardSales = list
+      .filter((order) => isCard(order))
+      .reduce((sum, order) => sum + Number(order.total || 0), 0)
+
+    const closedAt = new Date().toISOString()
+
+    const { error: saveError } = await supabase.from("day_reports").insert([
+      {
+        title: makeReportTitle(openedAt),
+        opened_at: openedAt,
+        closed_at: closedAt,
+        total_sales: totalSales,
+        cash_sales: cashSales,
+        card_sales: cardSales,
+        order_count: list.length,
+        orders: list,
+      },
+    ])
+
+    if (saveError) {
+      console.log("Hisobot saqlash xato:", saveError)
+      alert("Hisobot saqlanmadi ❌ day_reports RLS policy tekshir")
+      return
+    }
+
+    const { error: settingError } = await supabase
+  .from("app_settings")
+  .upsert(
+    {
+      key: "business_day_start",
+      value: { date: closedAt },
+      updated_at: closedAt,
+    },
+    { onConflict: "key" }
+  )
+
+    if (settingError) {
+      console.log("Setting yangilash xato:", settingError)
+      alert("Kun yopildi, lekin yangi kun starti saqlanmadi ❌")
+      return
+    }
+
+    await getOrders()
+    await getReport()
+
+    alert("Kun yopildi ✅ Yangi hisob 0 dan boshlandi")
+  }
 
   const payOrder = async () => {
     if (!selectedTable) {
@@ -494,17 +629,26 @@ function Tables() {
 
           <p className="text-sm mt-2 text-green-400">{backendStatus}</p>
 
-          <button
-            onClick={clearLocal}
-            className="mt-3 bg-red-500 text-white px-4 py-3 rounded-xl font-bold hover:bg-red-400 text-sm"
-          >
-            Ekranni tozalash
-          </button>
+          <div className="flex flex-wrap gap-2 mt-3">
+            <button
+              onClick={clearLocal}
+              className="bg-red-500 text-white px-4 py-3 rounded-xl font-bold hover:bg-red-400 text-sm"
+            >
+              Ekranni tozalash
+            </button>
+
+            <button
+              onClick={closeDay}
+              className="bg-yellow-400 text-black px-4 py-3 rounded-xl font-bold hover:bg-yellow-300 text-sm"
+            >
+              Kunni yopish
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 w-full xl:w-auto">
           <div className="bg-gray-900 border border-gray-800 rounded-2xl p-3 md:p-4">
-            <p className="text-gray-400 text-xs md:text-sm">Bugungi savdo</p>
+            <p className="text-gray-400 text-xs md:text-sm">Joriy hisob</p>
             <h2 className="text-lg md:text-2xl font-bold text-green-400">
               {report.totalSales.toLocaleString()} so‘m
             </h2>
@@ -589,7 +733,7 @@ function Tables() {
                   </p>
 
                   <p className="text-xs md:text-sm text-yellow-400">
-                    {order.payment_type === "cash" ? "Naqd" : "Karta"}
+                    {isCash(order) ? "Naqd" : "Karta"}
                   </p>
                 </div>
 
